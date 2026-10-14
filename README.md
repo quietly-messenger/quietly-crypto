@@ -31,15 +31,25 @@ The library provides the primitives the client needs to run X3DH session establi
 | XChaCha20-Poly1305 | `golang.org/x/crypto/chacha20poly1305` | Message and attachment encryption |
 | CSPRNG | `crypto/rand` | Nonces, salts, key generation |
 
-The X3DH handshake and the Double Ratchet state machine are composed from these primitives and are the next implementation step; they are intentionally kept out of this repo until the protocol schema (`api/v1/PROTOCOL.md` in the server) is frozen.
+The frozen binary wire formats for the ratchet and sealed sender (§9, §10 of the
+server's `api/v1/PROTOCOL.md`) and the domain-separation constants (§3.3) are
+encoded in the `protocol` package. The X3DH handshake and the Double Ratchet
+state machine are composed from the `cryptocore` primitives and are the next
+implementation step; they will live in `protocol` alongside the formats they
+produce.
 
 ## Layout
 
 ```
-cryptocore/       importable Go library (package cryptocore)
+cryptocore/       shared primitives (package cryptocore)
+protocol/         client-only wire formats + constants (package protocol)
 ffi/              package main: C ABI exports for the shared library
 Makefile          build, test, and cross-compile targets
+ARCHITECTURE.md   shared-vs-client-only layering
 ```
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the server (Go import) and the
+client (FFI) consume the same code, and which packages each may use.
 
 ## Building
 
