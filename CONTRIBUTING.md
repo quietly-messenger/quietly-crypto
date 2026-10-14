@@ -42,7 +42,6 @@ We ask for reasonable time to investigate and patch before any public disclosure
 4. Match the existing code style for that repo:
    - Go: `gofmt` / `go vet` clean
    - Flutter/Dart: `dart format`
-   - Zig: `zig fmt`
 5. Open a pull request describing *what* changed and *why*. Link the related issue if there is one.
 
 Given the subject matter, contributions touching cryptographic code, key handling, or the federation trust model will get extra scrutiny and may take longer to review — that's not a reflection on the quality of the work, just the nature of a security-sensitive project.
