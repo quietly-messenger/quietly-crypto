@@ -104,3 +104,69 @@ func TestSessionRegistry(t *testing.T) {
 	// Removing twice is a no-op.
 	sessions.remove(h)
 }
+
+// testSession builds a minimal established session for registry tests.
+func testSession(t *testing.T) *protocol.Session {
+	t.Helper()
+	ik, err := protocol.GenerateIdentityKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, bundle, err := protocol.GeneratePreKeyBundle(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _, err := initiatorSession(ik, bundle, []byte("m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// TestSessionRegistryIsBoundedAndMasked covers the audit F-13 hardening: the
+// registry evicts the oldest session once its cap is reached, and handles are
+// XOR-masked so they neither start at 1 nor follow the counter.
+func TestSessionRegistryIsBoundedAndMasked(t *testing.T) {
+	const max = 4
+	r := &sessionRegistry{
+		mask:     0x5eed5eed5eed5eed,
+		sessions: make(map[uint64]*protocol.Session),
+		max:      max,
+	}
+
+	var handles []uint64
+	for i := 0; i < max+2; i++ {
+		handles = append(handles, r.add(testSession(t)))
+	}
+
+	if len(r.sessions) != max {
+		t.Fatalf("registry holds %d sessions, want the cap %d", len(r.sessions), max)
+	}
+	if r.get(handles[0]) != nil || r.get(handles[1]) != nil {
+		t.Fatal("oldest sessions were not evicted")
+	}
+	if r.get(handles[max+1]) == nil {
+		t.Fatal("newest session missing")
+	}
+
+	// Raw counter values must not resolve, and no handle may equal the counter
+	// position: predictable handles are the F-13 concern.
+	if r.get(1) != nil || r.get(2) != nil {
+		t.Fatal("raw counter values resolve to sessions: mask not applied")
+	}
+	for i, h := range handles {
+		if h == uint64(i+1) {
+			t.Fatalf("handle %d equals the raw counter (mask not applied)", h)
+		}
+	}
+
+	// Removing an evicted handle is a no-op; removing a live one drops it.
+	r.remove(handles[0])
+	if r.get(handles[max+1]) == nil {
+		t.Fatal("remove dropped the wrong session")
+	}
+	r.remove(handles[max+1])
+	if r.get(handles[max+1]) != nil {
+		t.Fatal("removal did not drop the session")
+	}
+}

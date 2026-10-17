@@ -7,7 +7,9 @@ package main
 import "C"
 
 import (
+	"encoding/binary"
 	"sync"
+	"time"
 
 	"github.com/quietly-messenger/quietly-crypto/cryptocore"
 	"github.com/quietly-messenger/quietly-crypto/pow"
@@ -19,21 +21,59 @@ import (
 // integer handle. This keeps *Session objects (and their keys) in Go-managed
 // memory, never exposing a Go pointer across the FFI boundary. ---
 
+// sessionRegistryMax bounds the number of live sessions. Adding past the cap
+// evicts (and zeroizes) the oldest session, so a client that leaks handles
+// cannot grow the registry without bound (audit F-13).
+const sessionRegistryMax = 1024
+
 type sessionRegistry struct {
 	mu       sync.Mutex
 	next     uint64
+	mask     uint64
+	order    []uint64
 	sessions map[uint64]*protocol.Session
+	max      int
 }
 
-var sessions = &sessionRegistry{sessions: make(map[uint64]*protocol.Session)}
+// newSessionRegistry builds a registry whose handles are masked with a random
+// per-process value, so they are not sequential and cannot be guessed by
+// another in-process module (audit F-13).
+func newSessionRegistry(max int) *sessionRegistry {
+	return &sessionRegistry{
+		mask:     randomHandleMask(),
+		sessions: make(map[uint64]*protocol.Session),
+		max:      max,
+	}
+}
+
+// randomHandleMask returns a fresh per-process mask. It falls back to a
+// time-derived value only if the OS entropy source fails.
+func randomHandleMask() uint64 {
+	var b [8]byte
+	if err := cryptocore.RandomBytes(b[:]); err != nil {
+		return uint64(time.Now().UnixNano()) | 1
+	}
+	return binary.LittleEndian.Uint64(b[:])
+}
+
+var sessions = newSessionRegistry(sessionRegistryMax)
 
 func (r *sessionRegistry) add(s *protocol.Session) uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.next++
-	h := r.next
-	r.sessions[h] = s
-	return h
+	for len(r.sessions) >= r.max {
+		if !r.evictOldestLocked() {
+			break
+		}
+	}
+	for {
+		r.next++
+		if h := r.next ^ r.mask; h != 0 {
+			r.sessions[h] = s
+			r.order = append(r.order, h)
+			return h
+		}
+	}
 }
 
 func (r *sessionRegistry) get(h uint64) *protocol.Session {
@@ -45,7 +85,36 @@ func (r *sessionRegistry) get(h uint64) *protocol.Session {
 func (r *sessionRegistry) remove(h uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.sessions, h)
+	if s, ok := r.sessions[h]; ok {
+		s.Zeroize()
+		delete(r.sessions, h)
+	}
+	// Drop stale order entries once they dominate, keeping the slice bounded
+	// under churn (add/remove cycles).
+	if len(r.order) > 4*r.max {
+		live := r.order[:0]
+		for _, oh := range r.order {
+			if _, ok := r.sessions[oh]; ok {
+				live = append(live, oh)
+			}
+		}
+		r.order = live
+	}
+}
+
+// evictOldestLocked zeroizes and drops the oldest live session. The caller
+// holds r.mu.
+func (r *sessionRegistry) evictOldestLocked() bool {
+	for len(r.order) > 0 {
+		h := r.order[0]
+		r.order = r.order[1:]
+		if s, ok := r.sessions[h]; ok {
+			s.Zeroize()
+			delete(r.sessions, h)
+			return true
+		}
+	}
+	return false
 }
 
 // writeOut copies data into the caller's out buffer and sets *outLen.
@@ -87,6 +156,8 @@ func initiatorSession(ik *protocol.IdentityKeys, bundle protocol.PreKeyBundle, p
 	}
 	h, ct, err := s.Encrypt(plaintext)
 	if err != nil {
+		// The session was fully established; do not hand its keys to the GC.
+		s.Zeroize()
 		return nil, nil, err
 	}
 	initial := protocol.EncodeInitialMessage(protocol.InitialMessage{
@@ -118,6 +189,8 @@ func responderSession(ik *protocol.IdentityKeys, spk, otpk *cryptocore.PreKey, i
 	}
 	pt, err := s.Decrypt(msg.Header, msg.Ciphertext)
 	if err != nil {
+		// Failed first decrypt: wipe the established session's keys.
+		s.Zeroize()
 		return nil, nil, err
 	}
 	return s, pt, nil
@@ -169,6 +242,9 @@ func quietly_session_initiate(
 		return 0
 	}
 	if writeOut(out, outCap, outLen, initial) != 0 {
+		// The caller's buffer was too small: the session exists but has no
+		// handle yet, so wipe it instead of leaking it to the GC (audit F-13).
+		s.Zeroize()
 		return 0
 	}
 	return C.uint64_t(sessions.add(s))
@@ -217,6 +293,7 @@ func quietly_session_respond(
 		return 0
 	}
 	if writeOut(out, outCap, outLen, pt) != 0 {
+		s.Zeroize()
 		return 0
 	}
 	return C.uint64_t(sessions.add(s))

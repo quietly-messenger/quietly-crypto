@@ -226,6 +226,23 @@ func (s *Session) zeroizeSecrets() {
 	}
 }
 
+// Zeroize wipes the session's secret key material in place and drops stored
+// skipped message keys. It is safe to call more than once. Sessions that are
+// discarded (for example by the FFI on handle free or on a failed setup) should
+// call it so keys do not linger until the garbage collector runs.
+//
+// The wipe is best-effort by design: the Go runtime may hold copies of values
+// that were boxed, grown, or moved, so Zeroize reduces but does not guarantee
+// the elimination of secret material from process memory.
+func (s *Session) Zeroize() {
+	s.zeroizeSecrets()
+	for k, v := range s.skipped {
+		zeroize(v)
+		delete(s.skipped, k)
+	}
+	s.chainOrder = nil
+}
+
 // clone returns a deep copy of the session's mutable state.
 //
 // The copy is O(size of skipped-key store) per message, which is the price of
