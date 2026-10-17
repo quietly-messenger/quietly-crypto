@@ -38,7 +38,7 @@ import (
 	"github.com/quietly-messenger/quietly-crypto/cryptocore"
 )
 
-var versionCStr = C.CString(cryptocore.Version)
+var versionCStr = C.CString(cryptocore.LibraryVersion)
 
 // main is required by the c-shared toolchain to satisfy the linker, but it is
 // never invoked when the package is loaded as a shared library.
@@ -349,6 +349,11 @@ func quietly_aead_open(out *C.uchar, outCap C.int, outLen *C.int, key32, nonce24
 	return 0
 }
 
+// maxInputLen caps the size of a single caller-supplied buffer, protecting the
+// host process from an absurd allocation (a hostile caller could otherwise
+// request up to 2 GiB per call).
+const maxInputLen = 64 << 20 // 64 MiB
+
 // copyIn returns a fresh Go heap slice containing n bytes copied from p. A nil
 // pointer is acceptable when n is zero. Inputs are copied so that Go's crypto
 // packages never observe memory owned by the C caller (which would be invalid
@@ -357,7 +362,7 @@ func copyIn(p *C.uchar, n int) ([]byte, bool) {
 	if n == 0 {
 		return nil, true
 	}
-	if n < 0 || p == nil {
+	if n < 0 || n > maxInputLen || p == nil {
 		return nil, false
 	}
 	b := make([]byte, n)

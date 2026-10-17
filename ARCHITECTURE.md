@@ -29,7 +29,7 @@ binding, additionally reaches the **client-only** protocol layer.
 | `protocol` | **client** | X3DH, Double Ratchet, sealed sender, bundle signature verification, and the frozen wire formats (§7–§10) |
 | `pow` | **shared** | Proof-of-work solver + verifier (§4) |
 | `safety` | **shared** | Safety-number fingerprint derivation (§9.5) |
-| `ffi` | **client** | C ABI exports for `dart:ffi` |
+| `ffi` | **client** | C ABI for `dart:ffi` — primitives plus the session layer (X3DH, Double Ratchet, sealed sender) behind opaque handles |
 
 The `quietly` package is the single source of truth for the protocol version
 and the domain-separation strings; `protocol`, `pow`, and `safety` re-export

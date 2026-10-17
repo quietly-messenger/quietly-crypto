@@ -22,6 +22,10 @@ const MaxDifficulty = 256
 // Solve finds the smallest nonce whose preimage hashes to at least `difficulty`
 // leading zero bits. The caller is expected to have lowercased the username
 // already; Solve lowercases defensively anyway.
+//
+// Solve returns 0 for an invalid difficulty (outside [0, 256]). Callers that
+// need to distinguish "solved at nonce 0" from "no solution" should use
+// SolveLimit, which reports success explicitly.
 func Solve(username string, timestampMS int64, difficulty int) uint64 {
 	nonce, _ := solve(username, timestampMS, difficulty, 0)
 	return nonce

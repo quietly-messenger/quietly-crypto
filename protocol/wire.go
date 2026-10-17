@@ -57,8 +57,8 @@ func EncodeNormalMessage(h Header, ciphertext []byte) []byte {
 // DecodeNormalMessage parses a normal message, rejecting a short buffer, a
 // wrong version byte, or a wrong type byte.
 func DecodeNormalMessage(b []byte) (NormalMessage, error) {
-	if len(b) < NormalMessageHeaderSize {
-		return NormalMessage{}, errTooShort("normal message", NormalMessageHeaderSize, len(b))
+	if len(b) < NormalMessageHeaderSize+TagSize {
+		return NormalMessage{}, errTooShort("normal message", NormalMessageHeaderSize+TagSize, len(b))
 	}
 	if b[0] != VersionByte {
 		return NormalMessage{}, errVersion(b[0])
@@ -103,8 +103,8 @@ func EncodeInitialMessage(m InitialMessage) []byte {
 
 // DecodeInitialMessage parses an initial message with strict bounds checks.
 func DecodeInitialMessage(b []byte) (InitialMessage, error) {
-	if len(b) < InitialMessageHeaderSize {
-		return InitialMessage{}, errTooShort("initial message", InitialMessageHeaderSize, len(b))
+	if len(b) < InitialMessageHeaderSize+TagSize {
+		return InitialMessage{}, errTooShort("initial message", InitialMessageHeaderSize+TagSize, len(b))
 	}
 	if b[0] != VersionByte {
 		return InitialMessage{}, errVersion(b[0])
@@ -171,6 +171,12 @@ func DecodeSealedPayload(b []byte) (SealedPayload, error) {
 	p.SessionType = b[19]
 	copy(p.GroupID[:], b[20:36])
 	p.MsgType = b[36]
+	if p.SessionType != SessionTypePairwise && p.SessionType != SessionTypeGroup {
+		return SealedPayload{}, fmt.Errorf("sealed payload: invalid session type 0x%02x", p.SessionType)
+	}
+	if p.MsgType != MsgTypeInitial && p.MsgType != MsgTypeNormal {
+		return SealedPayload{}, fmt.Errorf("sealed payload: invalid message type 0x%02x", p.MsgType)
+	}
 	innerLen := binary.BigEndian.Uint32(b[37:41])
 	if uint64(innerLen) != uint64(len(b)-SealedPayloadPrefixSize) {
 		return SealedPayload{}, fmt.Errorf(

@@ -127,7 +127,13 @@ print(version().toDartString()); // 0.1.0
 
 ## C API reference
 
-All byte buffers are caller-owned; functions write into caller-provided buffers and return `0` on success, `-1` on error (`quietly_identity_verify` returns `1` for a valid signature, `0` for invalid). Fixed-size buffers carry their length in the parameter name (`pub32`, `priv64`, `sig64`, `nonce24`, …). See the generated header for exact prototypes.
+All byte buffers are caller-owned; functions write into caller-provided buffers and return `0` on success, `-1` on error (`quietly_identity_verify`/`quietly_bundle_verify`/`quietly_pow_verify` return `1` for a valid value, `0` for invalid). Fixed-size buffers carry their length in the parameter name (`pub32`, `priv64`, `sig64`, `nonce24`, …). See the generated header for exact prototypes.
+
+The session layer is exposed through opaque integer handles — Go owns the
+session objects and their keys, so the Dart side never holds ratchet state or
+reassembles the protocol.
+
+### Primitives
 
 | Function | Description |
 |---|---|
@@ -142,6 +148,25 @@ All byte buffers are caller-owned; functions write into caller-provided buffers 
 | `quietly_argon2id(out, outLen, password, passwordLen, salt, saltLen, time, memory, threads)` | Derive a key via Argon2id |
 | `quietly_aead_seal(out, outCap, outLen, key32, nonce24, plaintext, plaintextLen, aad, aadLen)` | Encrypt with XChaCha20-Poly1305 |
 | `quietly_aead_open(out, outCap, outLen, key32, nonce24, ciphertext, ciphertextLen, aad, aadLen)` | Decrypt and authenticate |
+| `quietly_aead_seal_random(out, outCap, outLen, key32, plaintext, plaintextLen, aad, aadLen)` | Encrypt with a fresh random nonce (prepended) |
+| `quietly_aead_open_random(out, outCap, outLen, key32, sealed, sealedLen, aad, aadLen)` | Decrypt the random-nonce output |
+
+### Sessions (opaque handles)
+
+| Function | Description |
+|---|---|
+| `quietly_session_initiate(keys, bundle, plaintext, …) → handle` | Establish as initiator; writes the initial message |
+| `quietly_session_respond(keys, spk, otpk, initial, …) → handle` | Establish as responder; writes the first plaintext |
+| `quietly_session_encrypt(handle, plaintext, …)` | Encrypt → normal-message wire bytes |
+| `quietly_session_decrypt(handle, msg, …)` | Decrypt a normal-message wire frame |
+| `quietly_session_free(handle)` | Release a session |
+| `quietly_bundle_verify(ikSig, ikDH, binding, spkID, spk, spkSig)` | Verify a bundle's signatures |
+| `quietly_identity_binding_sign(sigPriv, dhPub, out)` | Sign the identity binding |
+| `quietly_signed_prekey_sign(sigPriv, spkID, spkPub, out)` | Sign a signed prekey |
+| `quietly_seal_sender(…, inner, …)` | Seal a ratchet message for a recipient |
+| `quietly_open_sender(…, blob, …)` | Open a sealed blob → sender + inner |
+| `quietly_safety_number(userIDa, ikDHa, ikSiga, userIDb, ikDHb, ikSigb, …)` | Combined safety number |
+| `quietly_pow_verify(username, timestampMS, nonce, difficulty)` | Verify a proof of work |
 
 ## Security notes
 

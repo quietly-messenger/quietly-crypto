@@ -44,6 +44,7 @@ func SealSealedSender(senderIKDHPriv []byte, recipient UserDevice, recipientIKDH
 	ikm = append(ikm, random32...)
 	ikm = append(ikm, senderIKDHPriv...)
 	ikm = append(ikm, innerHash[:]...)
+	defer zeroize(ikm)
 
 	ePriv, err := cryptocore.HKDFSHA256(ikm, make([]byte, 32), []byte(DomainSealedEphemeral), 32)
 	if err != nil {

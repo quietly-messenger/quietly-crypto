@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/quietly-messenger/quietly-crypto/cryptocore"
@@ -255,5 +256,81 @@ func TestSkipLimitExceeded(t *testing.T) {
 	pt, err := bob.Decrypt(h1, c1)
 	if err != nil || string(pt) != "m1" {
 		t.Fatalf("session unusable after skip-limit error: pt=%q err=%v", pt, err)
+	}
+}
+
+// TestConcurrentEncrypt is the regression test for H2: a session must never
+// derive two messages under the same message number, because that reuses a
+// message key (keystream reuse). The mutex guarantees unique N values.
+func TestConcurrentEncrypt(t *testing.T) {
+	alice, bob := establish(t)
+
+	const n = 64
+	type frame struct {
+		h Header
+		c []byte
+	}
+	frames := make([]frame, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			h, c, err := alice.Encrypt([]byte(fmt.Sprintf("m%d", i)))
+			if err != nil {
+				t.Errorf("encrypt %d: %v", i, err)
+				return
+			}
+			frames[i] = frame{h: h, c: c}
+		}(i)
+	}
+	wg.Wait()
+
+	seen := make(map[uint32]bool, n)
+	for i := range frames {
+		if seen[frames[i].h.N] {
+			t.Fatalf("message number %d used more than once", frames[i].h.N)
+		}
+		seen[frames[i].h.N] = true
+	}
+
+	// All frames must still decrypt (order independent, via skipped keys).
+	for i := range frames {
+		if _, err := bob.Decrypt(frames[i].h, frames[i].c); err != nil {
+			t.Fatalf("decrypt frame %d: %v", i, err)
+		}
+	}
+}
+
+// TestSkippedChainEviction drives many DH ratchet steps and verifies the
+// chain-order bookkeeping never grows beyond maxSkippedChains.
+func TestSkippedChainEviction(t *testing.T) {
+	alice, bob := establish(t)
+
+	for i := 0; i < 16; i++ {
+		if i%2 == 0 {
+			h, c, err := alice.Encrypt([]byte("a"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := bob.Decrypt(h, c); err != nil {
+				t.Fatalf("bob decrypt %d: %v", i, err)
+			}
+		} else {
+			h, c, err := bob.Encrypt([]byte("b"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := alice.Decrypt(h, c); err != nil {
+				t.Fatalf("alice decrypt %d: %v", i, err)
+			}
+		}
+	}
+
+	if len(bob.chainOrder) > maxSkippedChains {
+		t.Fatalf("bob chainOrder = %d, exceeds cap %d", len(bob.chainOrder), maxSkippedChains)
+	}
+	if len(alice.chainOrder) > maxSkippedChains {
+		t.Fatalf("alice chainOrder = %d, exceeds cap %d", len(alice.chainOrder), maxSkippedChains)
 	}
 }

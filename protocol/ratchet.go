@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/quietly-messenger/quietly-crypto/cryptocore"
 )
@@ -23,7 +24,19 @@ type skippedKey struct {
 // Session is a Double Ratchet session between two devices (PROTOCOL.md §9).
 // It holds the root key, the ratchet keypairs, the sending and receiving chain
 // keys, and any skipped message keys for out-of-order delivery.
+//
+// A Session is safe for concurrent use: Encrypt and Decrypt are serialized so
+// two callers can never derive the same message key or double-advance a chain.
+//
+// A stale message whose ratchet key is from a chain older than the archived
+// window (maxSkippedChains) cannot be distinguished from a new chain, so it
+// triggers a DH ratchet step. This is not a confidentiality break (all chains
+// derive through the root KDF), but a replaying peer can force repeated
+// ratchets; the session should be torn down and re-established if this is
+// observed (PROTOCOL.md §9.4).
 type Session struct {
+	mu sync.Mutex
+
 	ad []byte // 128-byte associated data (§8.2)
 
 	rk  []byte             // root key (32 bytes)
@@ -98,6 +111,9 @@ func NewResponderSession(sk, ad []byte, spk *cryptocore.PreKey) (*Session, error
 // State is committed only after sealing succeeds, mirroring Decrypt's
 // rollback-on-error behavior (M5).
 func (s *Session) Encrypt(plaintext []byte) (Header, []byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.cks == nil {
 		return Header{}, nil, fmt.Errorf("ratchet: cannot encrypt before the first received message")
 	}
@@ -128,20 +144,37 @@ func (s *Session) Encrypt(plaintext []byte) (Header, []byte, error) {
 
 // Decrypt decrypts a message given its header and ciphertext, handling
 // out-of-order delivery via skipped message keys (§9.4). Per §9.3, a failed
-// decryption MUST NOT advance any ratchet state, so the operation is performed
-// on a snapshot that is only committed on success.
+// decryption MUST NOT advance any ratchet state: the operation runs on a deep
+// copy and is committed back into the session only on success.
 func (s *Session) Decrypt(h Header, ciphertext []byte) ([]byte, error) {
-	snapshot := s.clone()
-	pt, err := s.decrypt(h, ciphertext)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tmp := s.clone()
+	pt, err := tmp.decrypt(h, ciphertext)
 	if err != nil {
-		// The mutated state is discarded; clear its secrets before restoring.
-		s.zeroizeSecrets()
-		*s = *snapshot
+		tmp.zeroizeSecrets()
 		return nil, err
 	}
-	// The snapshot is discarded on success; clear its secret copies.
-	snapshot.zeroizeSecrets()
+	s.commit(tmp)
 	return pt, nil
+}
+
+// commit replaces s's state with tmp's, zeroizing the state being discarded.
+// It copies fields individually — never the whole struct — so a lock field is
+// never copied while held.
+func (s *Session) commit(tmp *Session) {
+	s.zeroizeSecrets()
+	s.rk = tmp.rk
+	s.cks = tmp.cks
+	s.ckr = tmp.ckr
+	s.dhr = tmp.dhr
+	s.dhs = tmp.dhs
+	s.ns = tmp.ns
+	s.nr = tmp.nr
+	s.pn = tmp.pn
+	s.skipped = tmp.skipped
+	s.chainOrder = tmp.chainOrder
 }
 
 func (s *Session) decrypt(h Header, ciphertext []byte) ([]byte, error) {
@@ -295,7 +328,12 @@ func (s *Session) skipMessageKeys(until uint32) error {
 		if err != nil {
 			return err
 		}
-		s.skipped[skippedKey{chain: toArray32(s.dhr), n: s.nr}] = append(key, nonce...)
+		// Copy into a fresh slice: append(key, nonce...) would reuse key's
+		// spare capacity and alias the HKDF output that we zeroize below.
+		stored := append(append([]byte(nil), key...), nonce...)
+		s.skipped[skippedKey{chain: toArray32(s.dhr), n: s.nr}] = stored
+		zeroize(key)
+		zeroize(nonce)
 		s.nr++
 	}
 	return nil

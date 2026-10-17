@@ -59,6 +59,9 @@ func x3dhInitiate(ik *IdentityKeys, bundle PreKeyBundle, ek *cryptocore.PreKey) 
 	}
 	defer zeroize(dh3)
 
+	// One-time prekey id 0 is the "absent" sentinel (PROTOCOL.md §9.2:
+	// otpk_id = 0 means none used). The server MUST assign one-time prekey ids
+	// starting at 1 so a legitimate id-0 prekey can never silently drop DH4.
 	var dh4 []byte
 	if bundle.OneTimePreKeyID != 0 {
 		dh4, err = cryptocore.X25519(ek.PrivateKey, bundle.OneTimePreKey)

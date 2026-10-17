@@ -110,6 +110,7 @@ func TestInitialMessageOffsetsAndRoundTrip(t *testing.T) {
 	}
 	var pk [X25519KeySize]byte
 	pk[0] = 0xcc
+	ct := bytes.Repeat([]byte{0xdd}, TagSize) // at least a full tag
 	in := InitialMessage{
 		IdentityKeyDH:   ikdh,
 		IdentityKeySig:  iksig,
@@ -117,7 +118,7 @@ func TestInitialMessageOffsetsAndRoundTrip(t *testing.T) {
 		SignedPreKeyID:  42,
 		OneTimePreKeyID: 7,
 		Header:          Header{RatchetPublicKey: pk, PN: 1, N: 3},
-		Ciphertext:      []byte("ct"),
+		Ciphertext:      ct,
 	}
 
 	enc := EncodeInitialMessage(in)
@@ -203,6 +204,26 @@ func TestSealedPayloadRejectsInnerLenMismatch(t *testing.T) {
 	}
 	if _, err := DecodeSealedPayload(enc[:SealedPayloadPrefixSize-1]); err == nil {
 		t.Fatal("expected error for short sealed payload")
+	}
+}
+
+func TestDecodeSealedPayloadRejectsInvalidEnum(t *testing.T) {
+	enc := EncodeSealedPayload(SealedPayload{
+		SessionType: SessionTypePairwise,
+		MsgType:     MsgTypeNormal,
+		Inner:       []byte("x"),
+	})
+
+	badSession := append([]byte(nil), enc...)
+	badSession[19] = 0xff
+	if _, err := DecodeSealedPayload(badSession); err == nil {
+		t.Fatal("invalid session type accepted")
+	}
+
+	badMsg := append([]byte(nil), enc...)
+	badMsg[36] = 0xff
+	if _, err := DecodeSealedPayload(badMsg); err == nil {
+		t.Fatal("invalid message type accepted")
 	}
 }
 
