@@ -117,11 +117,20 @@ func TestX3DHInitiatorResponderAgree(t *testing.T) {
 	}
 }
 
+// TestX3DHBundleTamperingChangesSK checks that every key participates in the
+// KDF: substituting any of the recipient's keys yields a different SK. It
+// exercises x3dhInitiate directly (bypassing signature verification) so the
+// KDF binding is tested in isolation; signature tampering is covered by
+// TestX3DHInitiateRejectsInvalidSignature.
 func TestX3DHBundleTamperingChangesSK(t *testing.T) {
 	ikA, _ := GenerateIdentityKeys()
 	_, _, _, bundleB, _ := GeneratePreKeyBundle(true)
+	ek, err := cryptocore.GeneratePreKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	sk0, _, _, err := X3DHInitiate(ikA, bundleB)
+	sk0, _, err := x3dhInitiate(ikA, bundleB, ek)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +138,7 @@ func TestX3DHBundleTamperingChangesSK(t *testing.T) {
 	tamper := func(mut func(*PreKeyBundle)) bool {
 		b := bundleB
 		mut(&b)
-		sk, _, _, err := X3DHInitiate(ikA, b)
+		sk, _, err := x3dhInitiate(ikA, b, ek)
 		if err != nil {
 			return false // a structurally invalid bundle is also a failure
 		}

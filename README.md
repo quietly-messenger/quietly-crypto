@@ -42,6 +42,7 @@ proof-of-work (§4) and safety-number fingerprint (§9.5).
 ## Layout
 
 ```
+quietly/          shared protocol constants: version + domain strings
 cryptocore/       shared primitives (package cryptocore)
 protocol/         client-only X3DH, Double Ratchet, sealed sender (package protocol)
 pow/              shared proof of work (package pow)

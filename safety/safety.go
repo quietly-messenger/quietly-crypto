@@ -6,12 +6,15 @@ package safety
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/quietly-messenger/quietly-crypto/quietly"
 )
 
 // Domain is the safety-number domain-separation string (PROTOCOL.md §3.3).
-const Domain = "quietly/1 safety-number"
+const Domain = quietly.DomainSafetyNumber
 
 // FingerprintSize is the size of a rendered single-party fingerprint in bytes
 // (PROTOCOL.md truncates SHA-256 output to 30 bytes).
@@ -39,10 +42,10 @@ func Fingerprint(userID [16]byte, ikDH, ikSig []byte) [FingerprintSize]byte {
 // Format renders a 30-byte fingerprint as six groups of five decimal digits.
 // Each 5-byte chunk is interpreted big-endian and taken modulo 100000, the
 // same digitization libsignal uses, so fingerprints render identically across
-// implementations.
-func Format(fp []byte) string {
+// implementations. It returns an error for a short fingerprint.
+func Format(fp []byte) (string, error) {
 	if len(fp) < FingerprintSize {
-		return ""
+		return "", fmt.Errorf("safety fingerprint must be at least %d bytes, got %d", FingerprintSize, len(fp))
 	}
 	var b strings.Builder
 	b.Grow(FingerprintSize) // 6 chunks of 5 digits
@@ -53,19 +56,25 @@ func Format(fp []byte) string {
 		}
 		b.WriteString(pad5(v % 100000))
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 // SafetyNumber returns the combined, order-independent safety number of two
 // parties. The two fingerprints are ordered by byte-wise comparison so both
 // parties compute the identical value regardless of who initiated.
-func SafetyNumber(fpA, fpB []byte) string {
-	a := Format(fpA)
-	b := Format(fpB)
-	if bytes.Compare(fpA, fpB) <= 0 {
-		return a + b
+func SafetyNumber(fpA, fpB []byte) (string, error) {
+	a, err := Format(fpA)
+	if err != nil {
+		return "", err
 	}
-	return b + a
+	b, err := Format(fpB)
+	if err != nil {
+		return "", err
+	}
+	if bytes.Compare(fpA, fpB) <= 0 {
+		return a + b, nil
+	}
+	return b + a, nil
 }
 
 func pad5(v uint64) string {

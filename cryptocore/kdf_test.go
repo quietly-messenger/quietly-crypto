@@ -40,19 +40,44 @@ func TestHKDFSHA256IsDeterministic(t *testing.T) {
 
 func TestArgon2idDeterministic(t *testing.T) {
 	p := Argon2idParams{Time: 2, Memory: 8 * 1024, Threads: 1, KeyLen: 32}
-	a, err := Argon2id([]byte("correct horse battery staple"), []byte("salt"), p)
+	salt := []byte("somesalt") // >= MinArgon2idSaltLen
+	a, err := Argon2id([]byte("correct horse battery staple"), salt, p)
 	if err != nil {
 		t.Fatalf("Argon2id: %v", err)
 	}
-	b, _ := Argon2id([]byte("correct horse battery staple"), []byte("salt"), p)
+	b, _ := Argon2id([]byte("correct horse battery staple"), salt, p)
 	if !bytes.Equal(a, b) {
 		t.Fatal("Argon2id output is not deterministic")
 	}
 	if len(a) != 32 {
 		t.Fatalf("Argon2id key length = %d, want 32", len(a))
 	}
+}
 
-	if _, err := Argon2id([]byte("p"), []byte("s"), Argon2idParams{}); err == nil {
-		t.Fatal("expected error for zero key length")
+// TestArgon2idRejectsInvalidParams locks in the fail-closed validation that
+// prevents x/crypto panics and unbounded allocations.
+func TestArgon2idRejectsInvalidParams(t *testing.T) {
+	salt := []byte("somesalt")
+	valid := Argon2idParams{Time: 1, Memory: 8 * 1024, Threads: 1, KeyLen: 32}
+
+	if _, err := Argon2id([]byte("p"), salt, valid); err != nil {
+		t.Fatalf("valid params rejected: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		mut  func(Argon2idParams) Argon2idParams
+		salt []byte
+	}{
+		{"zero time", func(p Argon2idParams) Argon2idParams { p.Time = 0; return p }, salt},
+		{"zero threads", func(p Argon2idParams) Argon2idParams { p.Threads = 0; return p }, salt},
+		{"zero key len", func(p Argon2idParams) Argon2idParams { p.KeyLen = 0; return p }, salt},
+		{"short salt", func(p Argon2idParams) Argon2idParams { return p }, []byte("short")},
+		{"huge memory", func(p Argon2idParams) Argon2idParams { p.Memory = MaxArgon2idMemoryKiB + 1; return p }, salt},
+	}
+	for _, c := range cases {
+		if _, err := Argon2id([]byte("p"), c.salt, c.mut(valid)); err == nil {
+			t.Errorf("%s: expected error, got nil", c.name)
+		}
 	}
 }

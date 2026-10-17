@@ -9,7 +9,10 @@ import (
 // 0xFFFFFFFFFF, and 0xFFFFFFFFFF mod 100000 = 27775.
 func TestFormatKnownAnswer(t *testing.T) {
 	fp := bytes.Repeat([]byte{0xFF}, FingerprintSize)
-	got := Format(fp)
+	got, err := Format(fp)
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
 	want := "277752777527775277752777527775"
 	if got != want {
 		t.Fatalf("Format = %q, want %q", got, want)
@@ -20,12 +23,21 @@ func TestFormatPadsGroups(t *testing.T) {
 	// A chunk of value 1 must render as "00001" (five digits, zero-padded).
 	fp := make([]byte, FingerprintSize)
 	fp[4] = 0x01 // first 5-byte chunk = 0x0000000001
-	got := Format(fp)
+	got, err := Format(fp)
+	if err != nil {
+		t.Fatalf("Format: %v", err)
+	}
 	if got[:5] != "00001" {
 		t.Fatalf("first group = %q, want %q", got[:5], "00001")
 	}
 	if len(got) != 30 {
 		t.Fatalf("formatted length = %d, want 30", len(got))
+	}
+}
+
+func TestFormatRejectsShortInput(t *testing.T) {
+	if _, err := Format(make([]byte, FingerprintSize-1)); err == nil {
+		t.Fatal("expected error for short fingerprint")
 	}
 }
 
@@ -62,8 +74,14 @@ func TestSafetyNumberIsOrderIndependent(t *testing.T) {
 	fpA := Fingerprint(uidA, bytes.Repeat([]byte{0x01}, 32), bytes.Repeat([]byte{0x02}, 32))
 	fpB := Fingerprint(uidB, bytes.Repeat([]byte{0x03}, 32), bytes.Repeat([]byte{0x04}, 32))
 
-	ab := SafetyNumber(fpA[:], fpB[:])
-	ba := SafetyNumber(fpB[:], fpA[:])
+	ab, err := SafetyNumber(fpA[:], fpB[:])
+	if err != nil {
+		t.Fatalf("SafetyNumber: %v", err)
+	}
+	ba, err := SafetyNumber(fpB[:], fpA[:])
+	if err != nil {
+		t.Fatalf("SafetyNumber: %v", err)
+	}
 	if ab != ba {
 		t.Fatalf("safety number is not order-independent: %q vs %q", ab, ba)
 	}

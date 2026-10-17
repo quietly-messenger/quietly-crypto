@@ -8,10 +8,12 @@ import (
 	"math/bits"
 	"strconv"
 	"strings"
+
+	"github.com/quietly-messenger/quietly-crypto/quietly"
 )
 
 // Domain is the proof-of-work domain-separation string (PROTOCOL.md §3.3).
-const Domain = "quietly/1 pow"
+const Domain = quietly.DomainPoW
 
 // MaxDifficulty is the largest meaningful difficulty (a SHA-256 digest has at
 // most 256 leading zero bits).
@@ -21,10 +23,36 @@ const MaxDifficulty = 256
 // leading zero bits. The caller is expected to have lowercased the username
 // already; Solve lowercases defensively anyway.
 func Solve(username string, timestampMS int64, difficulty int) uint64 {
+	nonce, _ := solve(username, timestampMS, difficulty, 0)
+	return nonce
+}
+
+// SolveLimit is Solve with an upper bound on the nonce: it returns
+// (nonce, true) on success and (0, false) if no nonce in [0, maxNonce]
+// satisfies the difficulty. Pass maxNonce == 0 for an unbounded search.
+func SolveLimit(username string, timestampMS int64, difficulty int, maxNonce uint64) (uint64, bool) {
+	return solve(username, timestampMS, difficulty, maxNonce)
+}
+
+func solve(username string, timestampMS int64, difficulty int, maxNonce uint64) (uint64, bool) {
+	if difficulty < 0 || difficulty > MaxDifficulty {
+		return 0, false
+	}
 	username = strings.ToLower(username)
+
+	// The prefix is fixed across all nonces; build it once and reuse the
+	// buffer, appending only the nonce each iteration.
+	prefix := prefix(username, timestampMS)
+	buf := make([]byte, 0, len(prefix)+20)
 	for nonce := uint64(0); ; nonce++ {
-		if Verify(username, timestampMS, nonce, difficulty) {
-			return nonce
+		if maxNonce != 0 && nonce > maxNonce {
+			return 0, false
+		}
+		buf = append(buf[:0], prefix...)
+		buf = strconv.AppendUint(buf, nonce, 10)
+		digest := sha256.Sum256(buf)
+		if leadingZeroBits(digest[:]) >= difficulty {
+			return nonce, true
 		}
 	}
 }
@@ -40,21 +68,24 @@ func Verify(username string, timestampMS int64, nonce uint64, difficulty int) bo
 	return leadingZeroBits(digest[:]) >= difficulty
 }
 
-// preimage builds "quietly/1 pow" || 0x00 || username || 0x00 ||
-// timestamp_ms || 0x00 || nonce, where timestamp_ms and nonce are decimal
-// ASCII with no leading zeros.
-func preimage(username string, timestampMS int64, nonce uint64) []byte {
+// prefix builds "quietly/1 pow" || 0x00 || username || 0x00 || timestamp_ms
+// || 0x00, the fixed part of the preimage.
+func prefix(username string, timestampMS int64) []byte {
 	ts := strconv.FormatInt(timestampMS, 10)
-	n := strconv.FormatUint(nonce, 10)
-	b := make([]byte, 0, len(Domain)+1+len(username)+1+len(ts)+1+len(n))
+	b := make([]byte, 0, len(Domain)+1+len(username)+1+len(ts)+1)
 	b = append(b, Domain...)
 	b = append(b, 0x00)
 	b = append(b, username...)
 	b = append(b, 0x00)
 	b = append(b, ts...)
 	b = append(b, 0x00)
-	b = append(b, n...)
 	return b
+}
+
+// preimage builds the full preimage: prefix || nonce, where nonce is decimal
+// ASCII with no leading zeros.
+func preimage(username string, timestampMS int64, nonce uint64) []byte {
+	return strconv.AppendUint(prefix(username, timestampMS), nonce, 10)
 }
 
 // leadingZeroBits counts leading zero bits starting at the most significant

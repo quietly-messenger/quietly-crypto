@@ -73,21 +73,27 @@ func Open(key, nonce, ciphertext, aad []byte) ([]byte, error) {
 // SealChaCha encrypts plaintext with ChaCha20-Poly1305 (IETF, 96-bit nonce)
 // using an explicit 12-byte nonce, returning ciphertext||tag.
 func SealChaCha(key, nonce, plaintext, aad []byte) ([]byte, error) {
-	if len(key) != AEADKeySize {
-		return nil, fmt.Errorf("AEAD key must be %d bytes, got %d", AEADKeySize, len(key))
-	}
-	if len(nonce) != ChaChaNonceSize {
-		return nil, fmt.Errorf("nonce must be %d bytes, got %d", ChaChaNonceSize, len(nonce))
-	}
-	aead, err := chacha20poly1305.New(key)
+	aead, err := newChaCha(key, nonce)
 	if err != nil {
-		return nil, fmt.Errorf("creating AEAD: %w", err)
+		return nil, err
 	}
 	return aead.Seal(nil, nonce, plaintext, aad), nil
 }
 
 // OpenChaCha decrypts and authenticates the output of SealChaCha.
 func OpenChaCha(key, nonce, ciphertext, aad []byte) ([]byte, error) {
+	aead, err := newChaCha(key, nonce)
+	if err != nil {
+		return nil, err
+	}
+	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting: %w", err)
+	}
+	return plaintext, nil
+}
+
+func newChaCha(key, nonce []byte) (cipher.AEAD, error) {
 	if len(key) != AEADKeySize {
 		return nil, fmt.Errorf("AEAD key must be %d bytes, got %d", AEADKeySize, len(key))
 	}
@@ -98,11 +104,7 @@ func OpenChaCha(key, nonce, ciphertext, aad []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating AEAD: %w", err)
 	}
-	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
-	if err != nil {
-		return nil, fmt.Errorf("decrypting: %w", err)
-	}
-	return plaintext, nil
+	return aead, nil
 }
 
 func newAEAD(key []byte) (cipher.AEAD, error) {

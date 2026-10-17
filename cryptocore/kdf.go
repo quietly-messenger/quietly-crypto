@@ -30,6 +30,17 @@ type Argon2idParams struct {
 	KeyLen  uint32 // output length in bytes
 }
 
+// Argon2id parameter bounds. These exist so that invalid or hostile parameters
+// return an error instead of panicking (x/crypto panics on Time/Threads == 0)
+// or attempting an absurd allocation (Memory is in KiB, so the uint32 max is
+// ~4 TiB).
+const (
+	// MinArgon2idSaltLen is the minimum salt length (RFC 9106 §3.1).
+	MinArgon2idSaltLen = 8
+	// MaxArgon2idMemoryKiB caps the memory cost at 1 GiB.
+	MaxArgon2idMemoryKiB = 1 << 20
+)
+
 // DefaultArgon2idParams returns the recommended parameters for deriving a
 // 32-byte backup key from a user recovery phrase.
 func DefaultArgon2idParams() Argon2idParams {
@@ -41,10 +52,24 @@ func DefaultArgon2idParams() Argon2idParams {
 	}
 }
 
-// Argon2id derives a key of p.KeyLen bytes from password and salt.
+// Argon2id derives a key of p.KeyLen bytes from password and salt. It returns
+// an error for parameters that x/crypto would panic on, for a short salt, or
+// for an unreasonably large memory cost.
 func Argon2id(password, salt []byte, p Argon2idParams) ([]byte, error) {
 	if p.KeyLen == 0 {
 		return nil, fmt.Errorf("Argon2id key length must be positive")
+	}
+	if p.Time < 1 {
+		return nil, fmt.Errorf("Argon2id time (passes) must be at least 1")
+	}
+	if p.Threads < 1 {
+		return nil, fmt.Errorf("Argon2id threads must be at least 1")
+	}
+	if len(salt) < MinArgon2idSaltLen {
+		return nil, fmt.Errorf("Argon2id salt must be at least %d bytes (RFC 9106)", MinArgon2idSaltLen)
+	}
+	if p.Memory > MaxArgon2idMemoryKiB {
+		return nil, fmt.Errorf("Argon2id memory must not exceed %d KiB", MaxArgon2idMemoryKiB)
 	}
 	return argon2.IDKey(password, salt, p.Time, p.Memory, p.Threads, p.KeyLen), nil
 }

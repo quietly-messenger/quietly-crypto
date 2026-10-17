@@ -357,7 +357,7 @@ func copyIn(p *C.uchar, n int) ([]byte, bool) {
 	if n == 0 {
 		return nil, true
 	}
-	if p == nil {
+	if n < 0 || p == nil {
 		return nil, false
 	}
 	b := make([]byte, n)

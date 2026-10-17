@@ -219,6 +219,20 @@ func TestForwardSecrecy(t *testing.T) {
 	}
 }
 
+// TestResponderCannotEncryptBeforeReceive is the regression test for C2: a
+// responder must not encrypt under the empty-key HMAC chain before it has
+// received the first message.
+func TestResponderCannotEncryptBeforeReceive(t *testing.T) {
+	alice, bob := establish(t)
+
+	if _, _, err := bob.Encrypt([]byte("premature")); err == nil {
+		t.Fatal("responder Encrypt before first receive should fail")
+	}
+	if _, _, err := alice.Encrypt([]byte("ok")); err != nil {
+		t.Fatalf("initiator Encrypt should succeed: %v", err)
+	}
+}
+
 func TestSkipLimitExceeded(t *testing.T) {
 	alice, bob := establish(t)
 

@@ -1,15 +1,19 @@
 package protocol
 
-// Version is the protocol version constant. It appears in every request and
-// every envelope; a mismatch is a hard error, never a silent parse failure
-// (PROTOCOL.md §1).
-const Version = "quietly/1"
+import (
+	"github.com/quietly-messenger/quietly-crypto/cryptocore"
+	"github.com/quietly-messenger/quietly-crypto/quietly"
+)
 
-// VersionByte is the leading byte of every ratchet message (§9.2) and sealed
-// payload (§10.2).
-const VersionByte = 0x01
+// Version and domain-separation strings are re-exported from the shared
+// `quietly` package so there is a single source of truth for every protocol
+// constant (see ARCHITECTURE.md). The server imports `quietly` directly.
+const (
+	Version     = quietly.Version
+	VersionByte = quietly.VersionByte
+)
 
-// Message types (§9.2, §10.2).
+// Message types (§9.2, §10.2). Client-only: the server never parses these.
 const (
 	MsgTypeInitial = 0x01
 	MsgTypeNormal  = 0x02
@@ -21,23 +25,25 @@ const (
 	SessionTypeGroup    = 0x01
 )
 
-// Domain-separation strings (§3.3). ASCII, no trailing NUL.
+// Domain-separation strings (§3.3), re-exported from `quietly`.
 const (
-	DomainIdentityBinding = "quietly/1 identity-binding"
-	DomainSignedPrekey    = "quietly/1 signed-prekey"
-	DomainX3DH            = "quietly/1 x3dh"
-	DomainRatchetRoot     = "quietly/1 ratchet-root"
-	DomainRatchetMessage  = "quietly/1 ratchet-msg"
-	DomainSealedSender    = "quietly/1 sealed-sender"
-	DomainSealedEphemeral = "quietly/1 sealed-ephemeral"
-	DomainSafetyNumber    = "quietly/1 safety-number"
-	DomainPoW             = "quietly/1 pow"
-	DomainRequest         = "quietly/1 request"
+	DomainIdentityBinding = quietly.DomainIdentityBinding
+	DomainSignedPrekey    = quietly.DomainSignedPrekey
+	DomainX3DH            = quietly.DomainX3DH
+	DomainRatchetRoot     = quietly.DomainRatchetRoot
+	DomainRatchetMessage  = quietly.DomainRatchetMessage
+	DomainSealedSender    = quietly.DomainSealedSender
+	DomainSealedEphemeral = quietly.DomainSealedEphemeral
+	DomainSafetyNumber    = quietly.DomainSafetyNumber
+	DomainPoW             = quietly.DomainPoW
+	DomainRequest         = quietly.DomainRequest
 )
 
-// Field and wire sizes (§9, §10).
+// Field and wire sizes. Key/nonce/tag sizes are aliases of the cryptocore
+// primitives' sizes so they cannot drift; the wire-layout sizes are defined
+// here (§9, §10).
 const (
-	X25519KeySize = 32
+	X25519KeySize = cryptocore.X25519PublicKeySize
 	UUIDSize      = 16
 	DeviceIDSize  = 2
 	GroupIDSize   = 16
@@ -63,11 +69,9 @@ const (
 	SealedBlobPrefixSize = 57
 
 	// AEAD parameters (§3, §9.1, §10.1).
-	RatchetKeySize   = 32
-	RatchetNonceSize = 12 // ChaCha20-Poly1305 (IETF), derived nonce
-	SealedKeySize    = 32
-	SealedNonceSize  = 24 // XChaCha20-Poly1305, random nonce
-	TagSize          = 16 // Poly1305 authentication tag
+	RatchetNonceSize = cryptocore.ChaChaNonceSize // ChaCha20-Poly1305 (IETF)
+	SealedNonceSize  = cryptocore.AEADNonceSize   // XChaCha20-Poly1305
+	TagSize          = cryptocore.AEADTagSize     // Poly1305 tag
 )
 
 // DomainSeparate returns domain || 0x00 || payload, the canonical domain

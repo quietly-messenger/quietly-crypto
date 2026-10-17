@@ -24,11 +24,17 @@ binding, additionally reaches the **client-only** protocol layer.
 
 | Package | Scope | Contains |
 |---|---|---|
+| `quietly` | **shared** | Protocol-wide constants: version and domain-separation strings |
 | `cryptocore` | **shared** | Primitives: Ed25519, X25519, HKDF-SHA256, HMAC-SHA256, Argon2id, ChaCha20-Poly1305, XChaCha20-Poly1305, CSPRNG |
-| `protocol` | **client** | X3DH, Double Ratchet, sealed sender, and the frozen wire formats and constants (§7–§10) |
+| `protocol` | **client** | X3DH, Double Ratchet, sealed sender, bundle signature verification, and the frozen wire formats (§7–§10) |
 | `pow` | **shared** | Proof-of-work solver + verifier (§4) |
 | `safety` | **shared** | Safety-number fingerprint derivation (§9.5) |
 | `ffi` | **client** | C ABI exports for `dart:ffi` |
+
+The `quietly` package is the single source of truth for the protocol version
+and the domain-separation strings; `protocol`, `pow`, and `safety` re-export
+(or alias) its constants, and the home server imports `quietly` directly for
+request-auth and registration verification.
 
 The rule: anything the server and client must agree on lives in a shared
 package; anything that touches client session keys or the ratchet lives in a

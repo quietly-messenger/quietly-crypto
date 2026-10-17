@@ -76,13 +76,18 @@ func NewResponderSession(sk, ad []byte, spk *cryptocore.PreKey) (*Session, error
 	if len(sk) != 32 || len(ad) != 128 {
 		return nil, fmt.Errorf("responder session: sk and ad must be 32 and 128 bytes")
 	}
-	if spk == nil || len(spk.PrivateKey) != 32 {
-		return nil, fmt.Errorf("responder session: signed prekey must be 32 bytes")
+	if spk == nil || len(spk.PrivateKey) != cryptocore.X25519PrivateKeySize {
+		return nil, fmt.Errorf("responder session: signed prekey must be %d bytes", cryptocore.X25519PrivateKeySize)
 	}
+	// The session owns a copy of the signed prekey so it can zeroize it later
+	// without corrupting the caller's copy (which may serve other sessions).
 	return &Session{
-		ad:      append([]byte(nil), ad...),
-		rk:      append([]byte(nil), sk...),
-		dhs:     spk,
+		ad: append([]byte(nil), ad...),
+		rk: append([]byte(nil), sk...),
+		dhs: &cryptocore.PreKey{
+			PublicKey:  append([]byte(nil), spk.PublicKey...),
+			PrivateKey: append([]byte(nil), spk.PrivateKey...),
+		},
 		dhr:     nil,
 		skipped: make(map[skippedKey][]byte),
 	}, nil
@@ -90,25 +95,34 @@ func NewResponderSession(sk, ad []byte, spk *cryptocore.PreKey) (*Session, error
 
 // Encrypt encrypts a plaintext under the current sending chain, advancing the
 // chain. It returns the ratchet header and the ciphertext (including tag).
+// State is committed only after sealing succeeds, mirroring Decrypt's
+// rollback-on-error behavior (M5).
 func (s *Session) Encrypt(plaintext []byte) (Header, []byte, error) {
+	if s.cks == nil {
+		return Header{}, nil, fmt.Errorf("ratchet: cannot encrypt before the first received message")
+	}
+
 	mk, nextCk := kdfChain(s.cks)
-	s.cks = nextCk
+	key, nonce, err := messageKey(mk)
+	zeroize(mk)
+	if err != nil {
+		return Header{}, nil, err
+	}
 
 	var pub [X25519KeySize]byte
 	copy(pub[:], s.dhs.PublicKey)
 	h := Header{RatchetPublicKey: pub, PN: s.pn, N: s.ns}
-	s.ns++
-
-	key, nonce, err := messageKey(mk)
-	if err != nil {
-		return Header{}, nil, err
-	}
-	defer zeroize(mk)
 
 	ct, err := cryptocore.SealChaCha(key, nonce, plaintext, s.aadFor(h))
+	zeroize(key)
+	zeroize(nonce)
 	if err != nil {
 		return Header{}, nil, err
 	}
+
+	// Commit the chain state only after a successful seal.
+	s.cks = nextCk
+	s.ns++
 	return h, ct, nil
 }
 
@@ -120,9 +134,13 @@ func (s *Session) Decrypt(h Header, ciphertext []byte) ([]byte, error) {
 	snapshot := s.clone()
 	pt, err := s.decrypt(h, ciphertext)
 	if err != nil {
+		// The mutated state is discarded; clear its secrets before restoring.
+		s.zeroizeSecrets()
 		*s = *snapshot
 		return nil, err
 	}
+	// The snapshot is discarded on success; clear its secret copies.
+	snapshot.zeroizeSecrets()
 	return pt, nil
 }
 
@@ -148,15 +166,38 @@ func (s *Session) decrypt(h Header, ciphertext []byte) ([]byte, error) {
 	s.nr++
 
 	key, nonce, err := messageKey(mk)
+	zeroize(mk)
 	if err != nil {
 		return nil, err
 	}
-	defer zeroize(mk)
 
-	return cryptocore.OpenChaCha(key, nonce, ciphertext, s.aadFor(h))
+	pt, err := cryptocore.OpenChaCha(key, nonce, ciphertext, s.aadFor(h))
+	zeroize(key)
+	zeroize(nonce)
+	return pt, err
+}
+
+// zeroizeSecrets wipes the session's secret key material in place. It is used
+// to clear discarded state (a rollback snapshot or the mutated state after a
+// failed decrypt).
+func (s *Session) zeroizeSecrets() {
+	zeroize(s.rk)
+	zeroize(s.cks)
+	zeroize(s.ckr)
+	zeroize(s.dhr)
+	if s.dhs != nil {
+		zeroize(s.dhs.PrivateKey)
+	}
+	for _, v := range s.skipped {
+		zeroize(v)
+	}
 }
 
 // clone returns a deep copy of the session's mutable state.
+//
+// The copy is O(size of skipped-key store) per message, which is the price of
+// the §9.3 rollback-on-error guarantee; the skipped store is tiny except under
+// adversarial out-of-order delivery, which the server rate-limits upstream.
 func (s *Session) clone() *Session {
 	c := &Session{
 		ad:  append([]byte(nil), s.ad...),
@@ -206,6 +247,8 @@ func (s *Session) dhRatchet(h Header) error {
 	if err != nil {
 		return err
 	}
+	// The previous ratchet private key is no longer needed; clear it.
+	zeroize(s.dhs.PrivateKey)
 	s.dhs = newDH
 
 	dh, err = cryptocore.X25519(newDH.PrivateKey, s.dhr)
@@ -238,6 +281,9 @@ func (s *Session) skipMessageKeys(until uint32) error {
 	if until <= s.nr {
 		return nil
 	}
+	if s.ckr == nil {
+		return fmt.Errorf("ratchet: no receiving chain key to skip from")
+	}
 	if until-s.nr > maxSkipPerChain {
 		return fmt.Errorf("ratchet: skip limit exceeded (%d > %d)", until-s.nr, maxSkipPerChain)
 	}
@@ -265,6 +311,7 @@ func (s *Session) trySkipped(h Header, ciphertext []byte) ([]byte, bool) {
 	}
 	delete(s.skipped, key)
 	pt, err := cryptocore.OpenChaCha(mk[:32], mk[32:], ciphertext, s.aadFor(h))
+	zeroize(mk)
 	if err != nil {
 		return nil, false
 	}
