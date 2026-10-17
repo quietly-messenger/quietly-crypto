@@ -161,14 +161,34 @@ reassembles the protocol.
 | `quietly_session_respond(keys, spk, otpk, initial, …) → handle` | Establish as responder; writes the first plaintext |
 | `quietly_session_encrypt(handle, plaintext, …)` | Encrypt → normal-message wire bytes |
 | `quietly_session_decrypt(handle, msg, …)` | Decrypt a normal-message wire frame |
-| `quietly_session_free(handle)` | Release a session |
+| `quietly_session_free(handle)` | Release a session (wipes keys; safe to call twice) |
 | `quietly_bundle_verify(ikSig, ikDH, binding, spkID, spk, spkSig)` | Verify a bundle's signatures |
 | `quietly_identity_binding_sign(sigPriv, dhPub, out)` | Sign the identity binding |
 | `quietly_signed_prekey_sign(sigPriv, spkID, spkPub, out)` | Sign a signed prekey |
 | `quietly_seal_sender(…, inner, …)` | Seal a ratchet message for a recipient |
 | `quietly_open_sender(…, blob, …)` | Open a sealed blob → sender + inner |
 | `quietly_safety_number(userIDa, ikDHa, ikSiga, userIDb, ikDHb, ikSigb, …)` | Combined safety number |
+
+### Request authentication (§5) and proof of work (§4)
+
+| Function | Description |
+|---|---|
+| `quietly_auth_nonce(out, outCap, outLen)` | Fresh base64url nonce for `X-Quietly-Nonce` |
+| `quietly_auth_body_hash(body, bodyLen, out)` | 64 hex chars: `SHA-256(body)` |
+| `quietly_auth_canonical_string(method, path, ts, nonce, body, out, outCap, outLen)` | The §5.1 canonical request string |
+| `quietly_auth_sign_request(priv64, method, path, ts, nonce, body, out64)` | Raw Ed25519 signature over the canonical string |
+| `quietly_pow_solve(username, ts, difficulty, outNonce)` | Solve the §4 proof of work |
 | `quietly_pow_verify(username, timestampMS, nonce, difficulty)` | Verify a proof of work |
+
+### Session lifecycle (client contract)
+
+Keep exactly **one live session per peer device**, keyed on
+`(user_id, device_id)`, and deduplicate incoming envelopes on their `id`.
+Never call `quietly_session_respond` twice for the same initial envelope: a
+second responder session for the same peer forks the ratchet and strands
+everything the first session produces (PROTOCOL.md §8.3). The session registry
+holds at most 1024 live sessions; the oldest is evicted (and wiped) beyond
+that, and handles are opaque and randomly masked.
 
 ## Security notes
 
@@ -176,6 +196,9 @@ reassembles the protocol.
   outputs, ephemeral keys, and derived keys as they go out of scope, but this is
   best-effort: the Go runtime may move or copy a slice, so it is not a hard
   guarantee that no copy remains in memory.
+- There is no `mlock` and no fork-safety: a forked child inherits session key
+  material, and process memory dumps are not scrubbed of best-effort-wiped
+  secrets. Treat the host process as trusted.
 - X25519 rejects low-order public keys (`crypto/ecdh` returns an error), which mitigates small-subgroup attacks during X3DH.
 - All randomness comes from `crypto/rand` (the OS CSPRNG).
 - The protocol logic is covered by known-answer test vectors (X3DH, the ratchet

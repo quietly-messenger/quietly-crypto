@@ -20,6 +20,20 @@
 //     never for memory owned by the C caller (stack or malloc'd).
 //   - Fixed-size buffers have their required length embedded in the parameter
 //     name (e.g. `pub32` is 32 bytes, `priv64` is 64 bytes).
+//   - Sessions: `quietly_session_initiate` / `quietly_session_respond` return
+//     an opaque `uint64` handle (0 means failure); release it with
+//     `quietly_session_free`, which is idempotent and wipes the session's key
+//     material. Keep exactly one live session per peer device, keyed on
+//     `(user_id, device_id)`, deduplicate incoming envelopes on their `id`,
+//     and never call `quietly_session_respond` twice for the same initial
+//     envelope — a second responder session for the same peer forks the
+//     ratchet and strands the first (PROTOCOL.md §8.3). The registry holds at
+//     most 1024 live sessions; the oldest is evicted (and wiped) beyond that.
+//   - Memory: secrets are wiped on free and on error paths, but the wipe is
+//     best-effort — there is no mlock, and the Go runtime may hold copies the
+//     library cannot reach (slice growth, boxing, GC). Do not assume mlocked
+//     semantics, do not dump process memory, and do not fork: a forked child
+//     inherits session key material.
 //   - Functions return 0 on success and -1 on any error. Identity verification
 //     additionally returns 1 for a valid signature and 0 for an invalid one.
 //   - `quietly_version` returns a static, NUL-terminated string that is valid
