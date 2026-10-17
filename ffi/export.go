@@ -29,6 +29,10 @@
 //     envelope — a second responder session for the same peer forks the
 //     ratchet and strands the first (PROTOCOL.md §8.3). The registry holds at
 //     most 1024 live sessions; the oldest is evicted (and wiped) beyond that.
+//   - Concurrency: calls against one handle are serialized by the library —
+//     `quietly_session_free` and registry eviction wait for an in-flight
+//     encrypt/decrypt on the same handle before wiping it. Different handles
+//     are independent and may be used from different threads.
 //   - Memory: secrets are wiped on free and on error paths, but the wipe is
 //     best-effort — there is no mlock, and the Go runtime may hold copies the
 //     library cannot reach (slice growth, boxing, GC). Do not assume mlocked

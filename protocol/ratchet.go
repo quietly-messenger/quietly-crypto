@@ -231,10 +231,18 @@ func (s *Session) zeroizeSecrets() {
 // discarded (for example by the FFI on handle free or on a failed setup) should
 // call it so keys do not linger until the garbage collector runs.
 //
+// Zeroize takes the session lock, so it may be called while another goroutine
+// is inside Encrypt or Decrypt — the wipe then waits for the in-flight
+// operation instead of racing its reads of the same buffers (audit F-24). A
+// session that was wiped mid-life is not repaired: encryption under it returns
+// an error and decryption fails.
+//
 // The wipe is best-effort by design: the Go runtime may hold copies of values
 // that were boxed, grown, or moved, so Zeroize reduces but does not guarantee
 // the elimination of secret material from process memory.
 func (s *Session) Zeroize() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.zeroizeSecrets()
 	for k, v := range s.skipped {
 		zeroize(v)

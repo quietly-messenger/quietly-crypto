@@ -170,3 +170,76 @@ func TestSessionRegistryIsBoundedAndMasked(t *testing.T) {
 		t.Fatal("removal did not drop the session")
 	}
 }
+
+// hammerEncrypt keeps encrypting under s in another goroutine until the
+// returned stop function has signaled it and the goroutine has exited.
+func hammerEncrypt(s *protocol.Session) (stop func()) {
+	halt := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-halt:
+				return
+			default:
+			}
+			_, _, _ = s.Encrypt([]byte("race"))
+		}
+	}()
+	return func() {
+		close(halt)
+		<-done
+	}
+}
+
+// TestEvictionZeroizesUnderLock pins audit F-24: evicting a session that
+// another thread may still be encrypting with must wait for the in-flight
+// call (Zeroize takes the session lock) and must leave the session wiped, not
+// torn. Without the lock this test flags under -race.
+func TestEvictionZeroizesUnderLock(t *testing.T) {
+	r := &sessionRegistry{
+		mask:     0x5eed5eed5eed5eed,
+		sessions: make(map[uint64]*protocol.Session),
+		max:      2,
+	}
+	victimHandle := r.add(testSession(t))
+	victim := r.get(victimHandle)
+	if victim == nil {
+		t.Fatal("session not registered")
+	}
+
+	stop := hammerEncrypt(victim)
+	r.add(testSession(t)) // fills the registry
+	r.add(testSession(t)) // over the cap: evicts and zeroizes the victim
+	stop()
+
+	// The behavioral assertion is confined to the registry: a post-eviction
+	// Encrypt may still run on the zeroed (non-nil) chain buffers, so the
+	// wipe itself is verified by the -race serialization this test exercises.
+	if r.get(victimHandle) != nil {
+		t.Fatal("evicted handle still resolves")
+	}
+}
+
+// TestFreeZeroizesUnderLock is the session_free half of audit F-24.
+func TestFreeZeroizesUnderLock(t *testing.T) {
+	r := &sessionRegistry{
+		mask:     0x5eed5eed5eed5eed,
+		sessions: make(map[uint64]*protocol.Session),
+		max:      4,
+	}
+	h := r.add(testSession(t))
+	s := r.get(h)
+	if s == nil {
+		t.Fatal("session not registered")
+	}
+
+	stop := hammerEncrypt(s)
+	r.remove(h)
+	stop()
+
+	if r.get(h) != nil {
+		t.Fatal("free did not drop the session")
+	}
+}

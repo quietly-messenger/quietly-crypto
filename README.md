@@ -190,6 +190,11 @@ everything the first session produces (PROTOCOL.md §8.3). The session registry
 holds at most 1024 live sessions; the oldest is evicted (and wiped) beyond
 that, and handles are opaque and randomly masked.
 
+Calls against one handle are serialized by the library: `quietly_session_free`
+and registry eviction wait for an in-flight encrypt/decrypt on the same handle
+before wiping it, so releasing a handle from another thread cannot tear a live
+operation. Different handles are independent.
+
 ## Security notes
 
 - Secrets are plain Go `[]byte` values. The `protocol` package zeroizes DH

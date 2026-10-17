@@ -86,6 +86,9 @@ func (r *sessionRegistry) remove(h uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if s, ok := r.sessions[h]; ok {
+		// Zeroize takes the session lock, so if a caller is mid-Encrypt this
+		// waits for it before wiping (audit F-24). Lock order is always
+		// registry → session; no path acquires them in reverse.
 		s.Zeroize()
 		delete(r.sessions, h)
 	}
@@ -103,7 +106,7 @@ func (r *sessionRegistry) remove(h uint64) {
 }
 
 // evictOldestLocked zeroizes and drops the oldest live session. The caller
-// holds r.mu.
+// holds r.mu; s.Zeroize takes the session lock (registry → session order).
 func (r *sessionRegistry) evictOldestLocked() bool {
 	for len(r.order) > 0 {
 		h := r.order[0]
