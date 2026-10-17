@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify gofmt
+        run: |
+          files=$(gofmt -l auth cryptocore ffi identity pow protocol safety quietly)
+          if [ -n "$files" ]; then echo "gofmt needed on:"; echo "$files"; exit 1; fi
+      - name: Vet
+        run: go vet ./...
+      - name: Test (race)
+        run: go test -race ./...
+      - name: Fuzz smoke test (wire decoders)
+        run: |
+          set -e
+          for f in FuzzDecodeHeader FuzzDecodeNormalMessage FuzzDecodeInitialMessage FuzzDecodeSealedPayload FuzzDecodeSealedBlob; do
+            echo "== $f"
+            go test ./protocol -run '^$' -fuzz "$f" -fuzztime 10s
+          done
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Build shared libraries (linux + windows)
+        run: make all
+      - name: Upload shared libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-libraries
+          path: dist/
+          if-no-files-found: error
