@@ -54,6 +54,18 @@ func NewPreKey(publicKey, privateKey []byte) (*PreKey, error) {
 	return &PreKey{PublicKey: publicKey, PrivateKey: privateKey}, nil
 }
 
+// X25519PublicKey returns the public key for an X25519 private key.
+func X25519PublicKey(privateKey []byte) ([]byte, error) {
+	if len(privateKey) != X25519PrivateKeySize {
+		return nil, fmt.Errorf("X25519 private key must be %d bytes, got %d", X25519PrivateKeySize, len(privateKey))
+	}
+	priv, err := ecdh.X25519().NewPrivateKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("parsing X25519 private key: %w", err)
+	}
+	return priv.PublicKey().Bytes(), nil
+}
+
 // X25519 computes the Diffie-Hellman shared secret between a private key and a
 // peer public key. It rejects malformed keys and low-order public keys.
 func X25519(privateKey, peerPublicKey []byte) ([]byte, error) {

@@ -2,9 +2,9 @@
 
 Cryptographic core of [Quietly](https://github.com/quietly-messenger) — a messenger with Telegram-level UX and a Signal/Matrix-level security model. This repository was originally a Zig crate and has been migrated to a Go library.
 
-The library provides the primitives the client needs to run X3DH session establishment and the Double Ratchet, and it can be consumed two ways:
+The library provides the full client crypto stack — X3DH session establishment, the Double Ratchet, sealed sender, plus the shared primitives, proof of work, and safety numbers — and it can be consumed two ways:
 
-1. **As a Go module** — import `github.com/quietly-messenger/quietly-crypto/cryptocore` from any Go program.
+1. **As a Go module** — import `github.com/quietly-messenger/quietly-crypto` (packages `cryptocore`, `protocol`, `pow`, `safety`) from any Go program.
 2. **As a C shared library** — compile to a `.so` / `.dll` / `.dylib` (plus a generated C header) and load it from any FFI consumer, most importantly Flutter via `dart:ffi`.
 
 > **Status:** early development, no stable release yet. APIs will change without notice until v1. No cryptographic primitive here is hand-rolled — everything is backed by the Go standard library or `golang.org/x/crypto`.
@@ -26,23 +26,26 @@ The library provides the primitives the client needs to run X3DH session establi
 |---|---|---|
 | Ed25519 identity keys | `crypto/ed25519` | Long-term device identity; request/signature verification |
 | X25519 key exchange | `crypto/ecdh` | One-time and signed prekeys, Diffie-Hellman for X3DH |
-| HKDF-SHA256 | `crypto/hkdf` | Ratchet key derivation (RFC 5869) |
+| HKDF-SHA256 | `crypto/hkdf` | X3DH and ratchet key derivation (RFC 5869) |
+| HMAC-SHA256 | `crypto/hmac` | Double Ratchet chain KDF |
 | Argon2id | `golang.org/x/crypto/argon2` | Recovery-phrase → backup key |
-| XChaCha20-Poly1305 | `golang.org/x/crypto/chacha20poly1305` | Message and attachment encryption |
+| ChaCha20-Poly1305 (IETF) | `golang.org/x/crypto/chacha20poly1305` | Ratchet message encryption |
+| XChaCha20-Poly1305 | `golang.org/x/crypto/chacha20poly1305` | Sealed sender |
 | CSPRNG | `crypto/rand` | Nonces, salts, key generation |
 
-The frozen binary wire formats for the ratchet and sealed sender (§9, §10 of the
-server's `api/v1/PROTOCOL.md`) and the domain-separation constants (§3.3) are
-encoded in the `protocol` package. The X3DH handshake and the Double Ratchet
-state machine are composed from the `cryptocore` primitives and are the next
-implementation step; they will live in `protocol` alongside the formats they
-produce.
+The `protocol` package implements X3DH (§8), the Double Ratchet (§9), and
+sealed sender (§10) on top of those primitives, and encodes the frozen binary
+wire formats and domain-separation constants from the server's
+`api/v1/PROTOCOL.md`. The `pow` and `safety` packages implement the shared
+proof-of-work (§4) and safety-number fingerprint (§9.5).
 
 ## Layout
 
 ```
 cryptocore/       shared primitives (package cryptocore)
-protocol/         client-only wire formats + constants (package protocol)
+protocol/         client-only X3DH, Double Ratchet, sealed sender (package protocol)
+pow/              shared proof of work (package pow)
+safety/           shared safety-number fingerprints (package safety)
 ffi/              package main: C ABI exports for the shared library
 Makefile          build, test, and cross-compile targets
 ARCHITECTURE.md   shared-vs-client-only layering
@@ -141,9 +144,16 @@ All byte buffers are caller-owned; functions write into caller-provided buffers 
 
 ## Security notes
 
-- Keys and secrets are plain Go `[]byte` values. This crate does not yet zeroize them on deallocation; callers handling long-lived key material should consider `runtime.KeepAlive` and explicit zeroization once the protocol layer lands.
+- Secrets are plain Go `[]byte` values. The `protocol` package zeroizes DH
+  outputs, ephemeral keys, and derived keys as they go out of scope, but this is
+  best-effort: the Go runtime may move or copy a slice, so it is not a hard
+  guarantee that no copy remains in memory.
 - X25519 rejects low-order public keys (`crypto/ecdh` returns an error), which mitigates small-subgroup attacks during X3DH.
 - All randomness comes from `crypto/rand` (the OS CSPRNG).
+- The protocol logic is covered by known-answer test vectors (X3DH, the ratchet
+  KDF chain) generated against an independent reference implementation, plus
+  property tests for forward secrecy, post-compromise security, and out-of-order
+  delivery.
 
 ## License
 

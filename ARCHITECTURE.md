@@ -24,10 +24,10 @@ binding, additionally reaches the **client-only** protocol layer.
 
 | Package | Scope | Contains |
 |---|---|---|
-| `cryptocore` | **shared** | Primitives: Ed25519, X25519, HKDF-SHA256, Argon2id, XChaCha20-Poly1305, CSPRNG |
-| `protocol` | **client** | Frozen binary wire layouts (§9, §10) and domain-separation constants (§3.3); the X3DH + Double Ratchet state machine lands here next |
-| `pow` | **shared** *(planned)* | Proof-of-work solver + verifier (§4) |
-| `safety` | **shared** *(planned)* | Safety-number fingerprint derivation (§9.5) |
+| `cryptocore` | **shared** | Primitives: Ed25519, X25519, HKDF-SHA256, HMAC-SHA256, Argon2id, ChaCha20-Poly1305, XChaCha20-Poly1305, CSPRNG |
+| `protocol` | **client** | X3DH, Double Ratchet, sealed sender, and the frozen wire formats and constants (§7–§10) |
+| `pow` | **shared** | Proof-of-work solver + verifier (§4) |
+| `safety` | **shared** | Safety-number fingerprint derivation (§9.5) |
 | `ffi` | **client** | C ABI exports for `dart:ffi` |
 
 The rule: anything the server and client must agree on lives in a shared

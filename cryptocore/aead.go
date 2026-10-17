@@ -14,6 +14,9 @@ const (
 	AEADNonceSize = chacha20poly1305.NonceSizeX
 	// AEADTagSize is the size of the Poly1305 authentication tag in bytes.
 	AEADTagSize = 16
+	// ChaChaNonceSize is the size of the ChaCha20-Poly1305 (IETF) nonce in
+	// bytes. This is the AEAD used for ratchet messages (PROTOCOL.md §9.1).
+	ChaChaNonceSize = chacha20poly1305.NonceSize
 )
 
 // Encrypt encrypts plaintext with XChaCha20-Poly1305, prepending a fresh
@@ -59,6 +62,41 @@ func Open(key, nonce, ciphertext, aad []byte) ([]byte, error) {
 	}
 	if len(nonce) != AEADNonceSize {
 		return nil, fmt.Errorf("nonce must be %d bytes, got %d", AEADNonceSize, len(nonce))
+	}
+	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting: %w", err)
+	}
+	return plaintext, nil
+}
+
+// SealChaCha encrypts plaintext with ChaCha20-Poly1305 (IETF, 96-bit nonce)
+// using an explicit 12-byte nonce, returning ciphertext||tag.
+func SealChaCha(key, nonce, plaintext, aad []byte) ([]byte, error) {
+	if len(key) != AEADKeySize {
+		return nil, fmt.Errorf("AEAD key must be %d bytes, got %d", AEADKeySize, len(key))
+	}
+	if len(nonce) != ChaChaNonceSize {
+		return nil, fmt.Errorf("nonce must be %d bytes, got %d", ChaChaNonceSize, len(nonce))
+	}
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, fmt.Errorf("creating AEAD: %w", err)
+	}
+	return aead.Seal(nil, nonce, plaintext, aad), nil
+}
+
+// OpenChaCha decrypts and authenticates the output of SealChaCha.
+func OpenChaCha(key, nonce, ciphertext, aad []byte) ([]byte, error) {
+	if len(key) != AEADKeySize {
+		return nil, fmt.Errorf("AEAD key must be %d bytes, got %d", AEADKeySize, len(key))
+	}
+	if len(nonce) != ChaChaNonceSize {
+		return nil, fmt.Errorf("nonce must be %d bytes, got %d", ChaChaNonceSize, len(nonce))
+	}
+	aead, err := chacha20poly1305.New(key)
+	if err != nil {
+		return nil, fmt.Errorf("creating AEAD: %w", err)
 	}
 	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
 	if err != nil {

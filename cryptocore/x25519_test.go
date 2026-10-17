@@ -67,3 +67,17 @@ func TestX25519RejectsLowOrderPoint(t *testing.T) {
 		t.Fatal("expected error for low-order public key")
 	}
 }
+
+func TestX25519PublicKeyMatches(t *testing.T) {
+	pk, err := GeneratePreKey()
+	if err != nil {
+		t.Fatalf("GeneratePreKey: %v", err)
+	}
+	pub, err := X25519PublicKey(pk.PrivateKey)
+	if err != nil {
+		t.Fatalf("X25519PublicKey: %v", err)
+	}
+	if !bytes.Equal(pub, pk.PublicKey) {
+		t.Fatal("derived public key does not match generated public key")
+	}
+}

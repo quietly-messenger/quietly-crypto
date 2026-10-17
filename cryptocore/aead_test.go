@@ -67,3 +67,37 @@ func TestOpenRejectsTampering(t *testing.T) {
 		t.Fatal("expected error for wrong nonce")
 	}
 }
+
+func TestChaChaRoundTripAndTamper(t *testing.T) {
+	key, _ := randomBytes(AEADKeySize)
+	nonce, _ := randomBytes(ChaChaNonceSize)
+	plaintext := []byte("ratchet message")
+	aad := []byte("associated data")
+
+	ct, err := SealChaCha(key, nonce, plaintext, aad)
+	if err != nil {
+		t.Fatalf("SealChaCha: %v", err)
+	}
+	if len(ct) != len(plaintext)+AEADTagSize {
+		t.Fatalf("ciphertext length = %d, want %d", len(ct), len(plaintext)+AEADTagSize)
+	}
+
+	pt, err := OpenChaCha(key, nonce, ct, aad)
+	if err != nil {
+		t.Fatalf("OpenChaCha: %v", err)
+	}
+	if !bytes.Equal(pt, plaintext) {
+		t.Fatal("round-tripped plaintext does not match")
+	}
+
+	// Wrong-length nonce must be rejected (the IETF variant uses 12 bytes, not 24).
+	if _, err := SealChaCha(key, make([]byte, AEADNonceSize), plaintext, aad); err == nil {
+		t.Fatal("expected error for 24-byte nonce on ChaCha20-Poly1305")
+	}
+
+	tampered := append([]byte(nil), ct...)
+	tampered[0] ^= 0x01
+	if _, err := OpenChaCha(key, nonce, tampered, aad); err == nil {
+		t.Fatal("expected error for tampered ciphertext")
+	}
+}
