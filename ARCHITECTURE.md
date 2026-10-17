@@ -24,23 +24,35 @@ binding, additionally reaches the **client-only** protocol layer.
 
 | Package | Scope | Contains |
 |---|---|---|
-| `quietly` | **shared** | Protocol-wide constants: version and domain-separation strings |
+| `quietly` | **shared** | Protocol-wide constants: version, domain-separation strings, `DomainSeparate` |
 | `cryptocore` | **shared** | Primitives: Ed25519, X25519, HKDF-SHA256, HMAC-SHA256, Argon2id, ChaCha20-Poly1305, XChaCha20-Poly1305, CSPRNG |
-| `protocol` | **client** | X3DH, Double Ratchet, sealed sender, bundle signature verification, and the frozen wire formats (§7–§10) |
+| `identity` | **shared** | Device identity keys, prekey bundles, and their signatures (§2, §7) |
+| `auth` | **shared** | Request authentication: canonical string, sign, verify (§5) |
+| `protocol` | **client** | X3DH, Double Ratchet, sealed sender, and the frozen wire formats (§8–§10) |
 | `pow` | **shared** | Proof-of-work solver + verifier (§4) |
 | `safety` | **shared** | Safety-number fingerprint derivation (§9.5) |
 | `ffi` | **client** | C ABI for `dart:ffi` — primitives plus the session layer (X3DH, Double Ratchet, sealed sender) behind opaque handles |
 
-The `quietly` package is the single source of truth for the protocol version
-and the domain-separation strings; `protocol`, `pow`, and `safety` re-export
-(or alias) its constants, and the home server imports `quietly` directly for
-request-auth and registration verification.
-
 The rule: anything the server and client must agree on lives in a shared
 package; anything that touches client session keys or the ratchet lives in a
 client-only package. Because Go compiles only imported packages, the server
-importing `cryptocore` (or `pow`) never links in the client-only `protocol`
-code.
+importing the shared packages never links in the client-only `protocol` code.
+
+## What the server imports
+
+The home server needs only the **shared** packages. Its crypto surface is:
+
+| Server concern | Import | Function |
+|---|---|---|
+| Its own identity + S2S signing | `cryptocore` | `GenerateIdentityKeyPair`, `SignIdentity`, `VerifyIdentitySignature` |
+| Request authentication (§5) | `auth` | `CanonicalString`, `VerifyRequest` |
+| Registration verification (§7) | `identity` | `PreKeyBundle.Verify` |
+| Account-creation PoW (§4) | `pow` | `Verify` |
+| Protocol constants (§3.3) | `quietly` | `Version`, `Domain*`, `DomainSeparate` |
+| Delivery tokens (§6) | stdlib | `sha256` + `crypto/subtle.ConstantTimeCompare` |
+
+The client additionally uses `identity` (to sign its own bundle), `protocol`
+(sessions), and `safety` (to display fingerprints).
 
 ## Security boundary
 

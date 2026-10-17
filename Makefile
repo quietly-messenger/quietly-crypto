@@ -78,7 +78,7 @@ vet:
 
 ## fmt: format all Go source files
 fmt:
-	gofmt -w cryptocore ffi pow protocol safety quietly
+	gofmt -w auth cryptocore ffi identity pow protocol safety quietly
 
 ## clean: remove build artifacts
 clean:

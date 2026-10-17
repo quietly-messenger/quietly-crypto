@@ -74,12 +74,5 @@ const (
 	TagSize          = cryptocore.AEADTagSize     // Poly1305 tag
 )
 
-// DomainSeparate returns domain || 0x00 || payload, the canonical domain
-// separation applied to every signature and KDF input (§3.3).
-func DomainSeparate(domain string, payload []byte) []byte {
-	out := make([]byte, 0, len(domain)+1+len(payload))
-	out = append(out, domain...)
-	out = append(out, 0x00)
-	out = append(out, payload...)
-	return out
-}
+// DomainSeparate is re-exported from the shared `quietly` package.
+var DomainSeparate = quietly.DomainSeparate

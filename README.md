@@ -44,12 +44,14 @@ proof-of-work (§4) and safety-number fingerprint (§9.5).
 ```
 quietly/          shared protocol constants: version + domain strings
 cryptocore/       shared primitives (package cryptocore)
+identity/         shared identity keys, bundles, signatures (package identity)
+auth/             shared request authentication (package auth)
 protocol/         client-only X3DH, Double Ratchet, sealed sender (package protocol)
 pow/              shared proof of work (package pow)
 safety/           shared safety-number fingerprints (package safety)
 ffi/              package main: C ABI exports for the shared library
 Makefile          build, test, and cross-compile targets
-ARCHITECTURE.md   shared-vs-client-only layering
+ARCHITECTURE.md   shared-vs-client-only layering + server integration map
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the server (Go import) and the

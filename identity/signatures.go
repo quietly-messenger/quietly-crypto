@@ -1,22 +1,23 @@
-package protocol
+package identity
 
 import (
 	"encoding/binary"
 	"fmt"
 
 	"github.com/quietly-messenger/quietly-crypto/cryptocore"
+	"github.com/quietly-messenger/quietly-crypto/quietly"
 )
 
 // SignIdentityBinding signs identity_key_dh with identity_key_sig, producing
 // the identity-binding signature (PROTOCOL.md §2, §7.1).
 func SignIdentityBinding(sigPriv, dhPub []byte) ([]byte, error) {
-	return cryptocore.SignIdentity(sigPriv, DomainSeparate(DomainIdentityBinding, dhPub))
+	return cryptocore.SignIdentity(sigPriv, quietly.DomainSeparate(quietly.DomainIdentityBinding, dhPub))
 }
 
 // VerifyIdentityBinding reports whether sig is a valid identity-binding
 // signature over identity_key_dh by identity_key_sig.
 func VerifyIdentityBinding(sigPub, dhPub, sig []byte) bool {
-	return cryptocore.VerifyIdentitySignature(sigPub, DomainSeparate(DomainIdentityBinding, dhPub), sig)
+	return cryptocore.VerifyIdentitySignature(sigPub, quietly.DomainSeparate(quietly.DomainIdentityBinding, dhPub), sig)
 }
 
 // SignSignedPreKey signs id_be32 || public_key with identity_key_sig, producing
@@ -35,10 +36,10 @@ func VerifySignedPreKey(sigPub []byte, id uint32, spkPub, sig []byte) bool {
 func signedPreKeyPayload(id uint32, spkPub []byte) []byte {
 	idBE := make([]byte, 4)
 	binary.BigEndian.PutUint32(idBE, id)
-	return DomainSeparate(DomainSignedPrekey, append(idBE, spkPub...))
+	return quietly.DomainSeparate(quietly.DomainSignedPrekey, append(idBE, spkPub...))
 }
 
-// VerifyBundle checks a prekey bundle's identity-binding and signed-prekey
+// Verify checks a prekey bundle's identity-binding and signed-prekey
 // signatures against its identity signing key (§7.2). A bundle whose
 // signatures do not verify must be rejected before any X3DH derivation.
 func (b PreKeyBundle) Verify() error {

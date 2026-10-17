@@ -22,7 +22,7 @@ var fBytes = []byte{
 // It also returns the ephemeral key EK_A, whose public half and identity keys
 // go into the initial message.
 func X3DHInitiate(ik *IdentityKeys, bundle PreKeyBundle) (sk, ad []byte, ek *cryptocore.PreKey, err error) {
-	if err := validateIdentity(ik); err != nil {
+	if err := ik.Validate(); err != nil {
 		return nil, nil, nil, err
 	}
 	if err := bundle.Verify(); err != nil {
@@ -83,7 +83,7 @@ func x3dhInitiate(ik *IdentityKeys, bundle PreKeyBundle, ek *cryptocore.PreKey) 
 // signed and optional one-time prekeys, and the initiator's public keys and
 // ephemeral key from the initial message (§8.3).
 func X3DHRespond(ik *IdentityKeys, spk, otpk *cryptocore.PreKey, initDHPub, initSigPub, initEK []byte) (sk, ad []byte, err error) {
-	if err := validateIdentity(ik); err != nil {
+	if err := ik.Validate(); err != nil {
 		return nil, nil, err
 	}
 	if spk == nil || len(spk.PrivateKey) != cryptocore.X25519PrivateKeySize {

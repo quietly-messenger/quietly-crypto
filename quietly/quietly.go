@@ -12,6 +12,16 @@ const Version = "quietly/1"
 // payload (§10.2).
 const VersionByte = 0x01
 
+// DomainSeparate returns domain || 0x00 || payload, the canonical domain
+// separation applied to every signature and KDF input (§3.3).
+func DomainSeparate(domain string, payload []byte) []byte {
+	out := make([]byte, 0, len(domain)+1+len(payload))
+	out = append(out, domain...)
+	out = append(out, 0x00)
+	out = append(out, payload...)
+	return out
+}
+
 // Domain-separation strings (PROTOCOL.md §3.3). ASCII, no trailing NUL.
 const (
 	DomainIdentityBinding = "quietly/1 identity-binding"
